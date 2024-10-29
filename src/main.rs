@@ -7,8 +7,8 @@ use embassy_executor::Spawner;
 use embassy_stm32::exti::{AnyChannel, Channel, ExtiInput};
 use embassy_stm32::gpio::{AnyPin, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::peripherals::{DMA1_CH4, PB13, PB15, SPI2};
-use embassy_stm32::spi::{Config, Mode, Phase, Polarity, Spi};
-use embassy_stm32::time::mhz;
+use embassy_stm32::spi;
+use embassy_stm32::time::{mhz, Hertz};
 use embassy_time::Timer;
 use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -58,16 +58,16 @@ struct DisplayPins {
 
 #[embassy_executor::task]
 async fn display(pins: DisplayPins, spi: SPI2, rxdma: DMA1_CH4) {
-    let mut config = Config::default();
-    config.mode = Mode {
-        polarity: Polarity::IdleLow,
-        phase: Phase::CaptureOnFirstTransition,
+    let mut config = spi::Config::default();
+    config.mode = spi::Mode {
+        polarity: spi::Polarity::IdleLow,
+        phase: spi::Phase::CaptureOnFirstTransition,
     };
-    config.frequency = mhz(10);
+    config.frequency = mhz(30);
 
     let mut delay = embassy_time::Delay;
 
-    let spi_bus = Spi::new_txonly(spi, pins.sck, pins.mosi, rxdma, config);
+    let spi_bus = spi::Spi::new_txonly(spi, pins.sck, pins.mosi, rxdma, config);
 
     let lcd_dc = Output::new(pins.dc, Level::Low, Speed::Low);
     let lcd_cs = Output::new(pins.cs, Level::High, Speed::High);
@@ -103,7 +103,29 @@ async fn display(pins: DisplayPins, spi: SPI2, rxdma: DMA1_CH4) {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
+    let mut config = embassy_stm32::Config::default();
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(25_000_000),
+            mode: HseMode::Oscillator,
+        });
+        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll = Some(Pll {
+            prediv: PllPreDiv::DIV25,  // 1Mhz
+            mul: PllMul::MUL240,       // 240Mhz
+            divp: Some(PllPDiv::DIV4), // 240MHz / 3 = 60MHz SYSCLK
+            divq: Some(PllQDiv::DIV5), // 240MHz / 5 = 48MHz USB CLK
+            divr: None,
+        });
+        config.rcc.sys = Sysclk::PLL1_P; // SYSCLK = PLL1_P (60MHz)
+        config.rcc.ahb_pre = AHBPrescaler::DIV1; // AHB = SYSCLK     (60MHz)
+        config.rcc.apb1_pre = APBPrescaler::DIV2; // APB1 = SYSCLK/2  (30MHz)
+        config.rcc.apb2_pre = APBPrescaler::DIV2; // APB2 = SYSCLK/2  (30MHz)
+        config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
+    }
+
+    let p = embassy_stm32::init(config);
     info!("embassy_stm32::init");
 
     let display_pins = DisplayPins {
