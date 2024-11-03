@@ -275,7 +275,6 @@ version = "0.6.1"
 dependencies = [
  "cortex-m",
  "critical-section",
- "defmt",
  "document-features",
  "embassy-executor-macros",
  "embassy-time-driver",
@@ -412,7 +411,6 @@ version = "0.1.0"
 name = "embassy-usb"
 version = "0.3.0"
 dependencies = [
- "defmt",
  "embassy-futures",
  "embassy-net-driver-channel",
  "embassy-sync",
@@ -916,6 +914,7 @@ dependencies = [
  "embassy-stm32",
  "embassy-time",
  "embassy-usb",
+ "embassy-usb-synopsys-otg",
  "embedded-graphics",
  "embedded-hal 1.0.0",
  "embedded-hal-bus",
