@@ -38,10 +38,3 @@ debug = 2
 name = "stm32f401-embassy"
 harness = false
 
-[[bin]]
-name = "usb_serial"
-harness = false
-
-[[bin]]
-name = "tasks"
-harness = false

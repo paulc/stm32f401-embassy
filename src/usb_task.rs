@@ -1,60 +1,25 @@
-#![no_std]
-#![no_main]
-
 use defmt::{panic, *};
 use embassy_executor::Spawner;
-use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
-use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
-use embassy_usb::driver::EndpointError;
-use embassy_usb::{Builder, UsbDevice};
+use embassy_usb::{
+    class::cdc_acm::{CdcAcmClass, State},
+    driver::EndpointError,
+    Builder, UsbDevice,
+};
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
-bind_interrupts!(struct Irqs {
-    OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
-});
+use crate::Irqs;
 
-#[embassy_executor::main]
-async fn main(spawner: Spawner) {
-    info!("Hello World!");
-    trace!("TRACE LOG");
-
-    let mut config = Config::default();
-    {
-        use embassy_stm32::rcc::*;
-        config.rcc.hse = Some(Hse {
-            freq: Hertz(25_000_000),
-            mode: HseMode::Oscillator,
-        });
-        config.rcc.pll_src = PllSource::HSE;
-        config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV25,  // 1Mhz
-            mul: PllMul::MUL240,       // 240Mhz
-            divp: Some(PllPDiv::DIV4), // 240MHz / 3 = 60MHz SYSCLK
-            divq: Some(PllQDiv::DIV5), // 240MHz / 5 = 48MHz USB CLK
-            divr: None,
-        });
-        config.rcc.sys = Sysclk::PLL1_P; // SYSCLK = PLL1_P (60MHz)
-        config.rcc.ahb_pre = AHBPrescaler::DIV1; // AHB = SYSCLK     (60MHz)
-        config.rcc.apb1_pre = APBPrescaler::DIV2; // APB1 = SYSCLK/2  (30MHz)
-        config.rcc.apb2_pre = APBPrescaler::DIV2; // APB2 = SYSCLK/2  (30MHz)
-        config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
-    }
-    let p = embassy_stm32::init(config);
-
-    spawner
-        .spawn(usb_device(spawner, p.USB_OTG_FS, p.PA12, p.PA11))
-        .unwrap();
-}
+pub type UsbOtgPeripheral = embassy_stm32::peripherals::USB_OTG_FS;
+pub type UsbOtgDmPin = embassy_stm32::peripherals::PA11;
+pub type UsbOtgDpPin = embassy_stm32::peripherals::PA12;
 
 #[embassy_executor::task]
-async fn usb_device(
+pub async fn usb_device(
     spawner: Spawner,
-    usb_otg: embassy_stm32::peripherals::USB_OTG_FS,
-    usb_dp: embassy_stm32::peripherals::PA12,
-    usb_dm: embassy_stm32::peripherals::PA11,
+    usb_otg: UsbOtgPeripheral,
+    usb_dp: UsbOtgDpPin,
+    usb_dm: UsbOtgDmPin,
 ) {
     let mut config = embassy_stm32::usb::Config::default();
 
@@ -77,7 +42,7 @@ async fn usb_device(
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("Embassy");
-    config.product = Some("USB-serial example");
+    config.product = Some("USB-Serial");
     config.serial_number = Some("12345678");
 
     // Required for windows compatibility.
@@ -129,7 +94,7 @@ async fn usb_device(
 }
 
 #[embassy_executor::task]
-async fn usb_task(mut usb: UsbDevice<'static, Driver<'static, peripherals::USB_OTG_FS>>) -> ! {
+async fn usb_task(mut usb: UsbDevice<'static, Driver<'static, UsbOtgPeripheral>>) -> ! {
     usb.run().await
 }
 
