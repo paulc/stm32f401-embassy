@@ -33,7 +33,7 @@ async fn main(spawner: Spawner) {
         config.rcc.pll = Some(Pll {
             prediv: PllPreDiv::DIV25,  // 1Mhz
             mul: PllMul::MUL240,       // 240Mhz
-            divp: Some(PllPDiv::DIV4), // 240MHz / 3 = 60MHz SYSCLK
+            divp: Some(PllPDiv::DIV4), // 240MHz / 4 = 60MHz SYSCLK
             divq: Some(PllQDiv::DIV5), // 240MHz / 5 = 48MHz USB CLK
             divr: None,
         });
