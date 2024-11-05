@@ -111,6 +111,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "chrono"
+version = "0.4.38"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a21f936df1771bf62b77f047b726c4625ff2e8aa607c01ec06e5a05bd8463401"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "cortex-m"
 version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -251,6 +260,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb6969eaabd2421f8a2775cfd2471a2b634372b4a25d41e3bd647b79912850a0"
 dependencies = [
  "litrs",
+]
+
+[[package]]
+name = "ds323x"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5157c16c530fa971b40f2b591edd86b9ce300ec1e5c267a4d6df6ee7df890a6"
+dependencies = [
+ "embedded-hal 0.2.7",
+ "rtcc",
+]
+
+[[package]]
+name = "eg-seven-segment"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e7d2f54ed234b333c71865c641906175a0d58bf366534ba5b8ded74b524b87b"
+dependencies = [
+ "bitflags 2.6.0",
+ "embedded-graphics",
 ]
 
 [[package]]
@@ -790,6 +819,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 
 [[package]]
+name = "rtcc"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95973c3a0274adc4f3c5b70d2b5b85618d6de9559a6737d3293ecae9a2fc0839"
+dependencies = [
+ "chrono",
+]
+
+[[package]]
 name = "rtt-target"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -902,6 +940,7 @@ dependencies = [
 name = "stm32f401-embassy"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "cortex-m",
  "cortex-m-rt",
  "critical-section",
@@ -909,6 +948,8 @@ dependencies = [
  "defmt-rtt",
  "display-interface",
  "display-interface-spi",
+ "ds323x",
+ "eg-seven-segment",
  "embassy-executor",
  "embassy-futures",
  "embassy-stm32",

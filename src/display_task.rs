@@ -17,7 +17,7 @@ use embedded_graphics::{
 };
 use embedded_hal_bus::spi::ExclusiveDevice;
 use ili9341::{DisplaySize240x320, Ili9341, Orientation};
-use profont::PROFONT_18_POINT;
+use profont::{PROFONT_18_POINT, PROFONT_24_POINT};
 
 pub type DisplaySpi = embassy_stm32::peripherals::SPI2;
 pub type DisplaySpiSck = embassy_stm32::peripherals::PB13;
@@ -32,6 +32,8 @@ pub struct DisplayPins {
     pub reset: AnyPin,
     pub backlight: AnyPin,
 }
+
+pub enum DisplayMessage {}
 
 #[embassy_executor::task]
 pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma) {
@@ -63,16 +65,16 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma)
     )
     .unwrap();
 
-    let mut scroll = display.configure_vertical_scroll(24, 8).unwrap();
+    let mut scroll = display.configure_vertical_scroll(30, 2).unwrap();
 
     info!("Starting Display");
     lcd_backlight.set_high();
-    display.clear(Rgb565::GREEN).ok();
+    display.clear(Rgb565::WHITE).ok();
 
     Text::with_alignment(
         "HEADER HEADER HEADER",
-        Point::new(20, 23),
-        MonoTextStyle::new(&PROFONT_18_POINT, Rgb565::RED),
+        Point::new(20, 29),
+        MonoTextStyle::new(&PROFONT_24_POINT, Rgb565::RED),
         Alignment::Left,
     )
     .draw(&mut display)
@@ -101,7 +103,7 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma)
     loop {
         Timer::after_millis(100).await;
         display.scroll_vertically(&mut scroll, 24).ok();
-        Rectangle::new(Point::new(0, 24), Size::new(240, 24))
+        Rectangle::new(Point::new(0, 30), Size::new(240, 24))
             .into_styled(style)
             .draw(&mut display)
             .ok();

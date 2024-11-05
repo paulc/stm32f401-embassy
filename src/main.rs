@@ -9,6 +9,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 mod button_task;
 mod display_task;
+mod i2c_task;
 mod led_task;
 mod usb_task;
 
@@ -22,6 +23,7 @@ pub static FLASH: AtomicBool = AtomicBool::new(true);
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+    // Setup clocks
     let mut config = embassy_stm32::Config::default();
     {
         use embassy_stm32::rcc::*;
@@ -56,6 +58,7 @@ async fn main(spawner: Spawner) {
         backlight: p.PB12.degrade(),
     };
 
+    spawner.spawn(i2c_task::rtc(p.I2C1, p.PB8, p.PB9)).unwrap();
     spawner
         .spawn(button_task::button(p.PA0.degrade(), p.EXTI0.degrade()))
         .unwrap();
