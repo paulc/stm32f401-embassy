@@ -4,6 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::{bind_interrupts, exti::Channel, gpio::Pin, time::Hertz, usb};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, watch::Watch};
 use portable_atomic::AtomicBool;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -19,7 +20,9 @@ bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<usb_task::UsbOtgPeripheral>;
 });
 
-pub static FLASH: AtomicBool = AtomicBool::new(true);
+static RTC_TIME: Watch<CriticalSectionRawMutex, (u8, u8, u8), 2> = Watch::new();
+
+static FLASH: AtomicBool = AtomicBool::new(true);
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {

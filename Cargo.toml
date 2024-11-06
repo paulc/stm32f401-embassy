@@ -13,6 +13,7 @@ embassy-time = { version = "0.3.2", path = "../../embassy/embassy-time", feature
 embassy-usb = { version = "0.3.0", path = "../../embassy/embassy-usb"} 
 embassy-usb-synopsys-otg = { version = "0.1.0", path = "../../embassy/embassy-usb-synopsys-otg" }
 embassy-futures = { version = "0.1.0", path = "../../embassy/embassy-futures" }
+embassy-sync = { version = "0.6.0", path = "../../embassy/embassy-sync" }
 
 embedded-hal = "1.0.0"
 embedded-hal-bus = "0.2.0"
@@ -33,6 +34,7 @@ static_cell = "2.1.0"
 ds323x = "0.5.1"
 chrono = { version = "0.4.38", default-features = false }
 eg-seven-segment = "0.2.0"
+heapless = "0.8.0"
 
 [profile.release]
 debug = 2
