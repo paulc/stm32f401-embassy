@@ -75,9 +75,6 @@ pub async fn usb_device(
     // Build the builder.
     let usb = builder.build();
 
-    // Run the USB device.
-    // let usb_fut = usb.run();
-
     // Run USB Device
     spawner.spawn(usb_task(usb)).unwrap();
 
@@ -113,11 +110,35 @@ impl From<EndpointError> for Disconnected {
 async fn echo<'d, T: Instance + 'd>(
     class: &mut CdcAcmClass<'d, Driver<'d, T>>,
 ) -> Result<(), Disconnected> {
-    let mut buf = [0; 64];
+    let mut buf = [0; 128];
+    let mut line_buffer: heapless::String<128> = heapless::String::new();
     loop {
         let n = class.read_packet(&mut buf).await?;
         let data = &buf[..n];
-        info!("data: {:x}", data);
-        class.write_packet(data).await?;
+        for c in data.utf8_chunks() {
+            match c.valid() {
+                "\n" | "\r" => {
+                    info!(">> NL");
+                    class.write_packet(&[b'\r']).await?;
+                    // class.write_packet(line_buffer.as_bytes()).await?;
+                    class
+                        .write_packet(&[b'\r', b'\n', b'>', b'>', b' '])
+                        .await?;
+                    line_buffer.clear();
+                }
+                "\t" => info!(">> TAB"),
+                "\x7f" | "\x08" => {
+                    info!(">> BS");
+                    line_buffer.pop();
+                }
+                s => {
+                    info!(">> String: {}", s.len());
+                    line_buffer.push_str(s).ok();
+                }
+            }
+        }
+        class.write_packet(&[b'\r', b'>', b'>', b' ']).await?;
+        // XXX handle > 64 byte lines
+        class.write_packet(line_buffer.as_bytes()).await?;
     }
 }
