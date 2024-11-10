@@ -11,9 +11,11 @@ use portable_atomic::AtomicBool;
 use {defmt_rtt as _, panic_probe as _};
 
 mod button_task;
+mod cli;
 mod display_task;
 mod i2c_task;
 mod led_task;
+mod line_input;
 mod usb_task;
 
 use display_task::DisplayPins;
@@ -69,15 +71,10 @@ async fn main(spawner: Spawner) {
         backlight: p.PB12.degrade(),
     };
 
-    spawner.spawn(i2c_task::rtc(p.I2C1, p.PB8, p.PB9)).unwrap();
-    spawner
-        .spawn(button_task::button(p.PA0.degrade(), p.EXTI0.degrade()))
-        .unwrap();
-    spawner.spawn(led_task::blink(p.PC13.degrade())).unwrap();
-    spawner
-        .spawn(display_task::display(display_pins, p.SPI2, p.DMA1_CH4))
-        .unwrap();
-    spawner
-        .spawn(usb_task::usb_device(spawner, p.USB_OTG_FS, p.PA12, p.PA11))
-        .unwrap();
+    // Spawn tasks
+    spawner.must_spawn(i2c_task::rtc(p.I2C1, p.PB8, p.PB9));
+    spawner.must_spawn(button_task::button(p.PA0.degrade(), p.EXTI0.degrade()));
+    spawner.must_spawn(led_task::blink(p.PC13.degrade()));
+    spawner.must_spawn(display_task::display(display_pins, p.SPI2, p.DMA1_CH4));
+    spawner.must_spawn(usb_task::usb_device(spawner, p.USB_OTG_FS, p.PA12, p.PA11));
 }

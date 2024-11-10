@@ -1,10 +1,8 @@
-use core::fmt::Write;
-use defmt::{info, panic, Format};
+use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::usb::{Driver, Instance};
+use embassy_stm32::usb::Driver;
 use embassy_usb::{
     class::cdc_acm::{CdcAcmClass, State},
-    driver::EndpointError,
     Builder, UsbDevice,
 };
 use static_cell::StaticCell;
@@ -96,104 +94,10 @@ async fn cdc_acm_task(mut class: CdcAcmClass<'static, Driver<'static, UsbOtgPeri
     loop {
         class.wait_connection().await;
         info!("Connected");
-        match serial_handler(&mut class).await {
+        match crate::line_input::line_input(&mut class).await {
             Ok(_) => info!("CDC_ADM ok"),
             Err(e) => info!("CDC_ACM error: {:?}", e),
         };
         info!("Disconnected");
     }
-}
-
-#[derive(Format)]
-struct Disconnected {}
-
-impl From<EndpointError> for Disconnected {
-    fn from(val: EndpointError) -> Self {
-        match val {
-            EndpointError::BufferOverflow => panic!("Buffer overflow"),
-            EndpointError::Disabled => Disconnected {},
-        }
-    }
-}
-
-const NL: [u8; 1] = [b'\n'];
-const CRNL: [u8; 2] = [b'\r', b'\n'];
-const PROMPT: [u8; 8] = [0x1b, b'[', b'2', b'K', b'\r', b'>', b'>', b' '];
-
-async fn serial_handler<'a, T: Instance + 'a>(
-    class: &mut CdcAcmClass<'a, Driver<'a, T>>,
-) -> Result<(), Disconnected> {
-    let mut buf = [0; 128];
-    let mut line_buffer: heapless::String<128> = heapless::String::new();
-    loop {
-        let n = class.read_packet(&mut buf).await?;
-        let data = &buf[..n];
-        for c in data.utf8_chunks() {
-            match c.valid() {
-                "\n" | "\r" => {
-                    info!(
-                        "Line >>{}<< [{}] {}",
-                        line_buffer.as_str(),
-                        line_buffer.len(),
-                        line_buffer.as_bytes()
-                    );
-                    class.write_packet(&CRNL).await?;
-                    let mut has_output = false;
-                    for pkt in cmd_handler(&line_buffer).await.as_bytes().chunks(64) {
-                        has_output = true;
-                        class.write_packet(pkt).await?;
-                    }
-                    if has_output {
-                        class.write_packet(&NL).await?;
-                    }
-                    class.write_packet(&PROMPT).await?;
-                    line_buffer.clear();
-                }
-                "\t" => info!(">> TAB"),
-                "\x7f" | "\x08" => {
-                    line_buffer.pop();
-                }
-                s => {
-                    // info!("Chunk: {}", s.as_bytes());
-                    line_buffer.push_str(s).ok();
-                }
-            }
-        }
-        class.write_packet(&PROMPT).await?;
-        for pkt in line_buffer.as_bytes().chunks(64) {
-            class.write_packet(pkt).await?;
-        }
-    }
-}
-
-async fn cmd_handler(line: &heapless::String<128>) -> heapless::String<128> {
-    let mut out: heapless::String<128> = heapless::String::new();
-    if line.is_empty() {
-        return out;
-    }
-    let s = line.as_str();
-    if s.starts_with("hello") {
-        out.push_str("Hello!").ok();
-    } else if s.starts_with("get time") {
-        let mut rtc_time_rx = crate::RTC_TIME.receiver().unwrap();
-        let (h, m, s) = rtc_time_rx.get().await;
-        write!(out, "{:02}:{:02}:{02}", h, m, s).ok();
-    } else if s.starts_with("set time") {
-        if s.len() < 17 {
-            out.push_str("Expected <set time hh:mm:ss>").ok();
-        } else {
-            let (h, m, s) = (
-                &s[9..11].parse::<u8>().unwrap(),
-                &s[12..14].parse::<u8>().unwrap(),
-                &s[15..17].parse::<u8>().unwrap(),
-            );
-            let msg_pub = crate::MSG_BUS.publisher().unwrap();
-            msg_pub.publish(crate::Msg::SetTime(*h, *m, *s)).await;
-        }
-    } else {
-        out.push_str("Invalid Command <").ok();
-        out.push_str(s).ok();
-        out.push_str(">").ok();
-    }
-    out
 }
