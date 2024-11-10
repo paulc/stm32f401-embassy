@@ -4,7 +4,9 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::{bind_interrupts, exti::Channel, gpio::Pin, time::Hertz, usb};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, watch::Watch};
+use embassy_sync::{
+    blocking_mutex::raw::CriticalSectionRawMutex, pubsub::PubSubChannel, watch::Watch,
+};
 use portable_atomic::AtomicBool;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -12,6 +14,7 @@ mod button_task;
 mod display_task;
 mod i2c_task;
 mod led_task;
+mod noline_task;
 mod usb_task;
 
 use display_task::DisplayPins;
@@ -20,7 +23,13 @@ bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<usb_task::UsbOtgPeripheral>;
 });
 
-static RTC_TIME: Watch<CriticalSectionRawMutex, (u8, u8, u8), 2> = Watch::new();
+#[derive(Clone)]
+enum Msg {
+    SetTime(u8, u8, u8),
+}
+
+static RTC_TIME: Watch<CriticalSectionRawMutex, (u8, u8, u8), 4> = Watch::new();
+static MSG_BUS: PubSubChannel<CriticalSectionRawMutex, Msg, 4, 4, 4> = PubSubChannel::new();
 
 static FLASH: AtomicBool = AtomicBool::new(true);
 

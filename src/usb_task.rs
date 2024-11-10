@@ -1,4 +1,5 @@
-use defmt::{panic, *};
+use core::fmt::Write;
+use defmt::{info, panic, Format};
 use embassy_executor::Spawner;
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_usb::{
@@ -13,6 +14,10 @@ use crate::Irqs;
 pub type UsbOtgPeripheral = embassy_stm32::peripherals::USB_OTG_FS;
 pub type UsbOtgDmPin = embassy_stm32::peripherals::PA11;
 pub type UsbOtgDpPin = embassy_stm32::peripherals::PA12;
+
+static STATE: StaticCell<State> = StaticCell::new();
+static CLASS: StaticCell<CdcAcmClass<'static, Driver<'static, UsbOtgPeripheral>>> =
+    StaticCell::new();
 
 #[embassy_executor::task]
 pub async fn usb_device(
@@ -68,9 +73,8 @@ pub async fn usb_device(
     );
 
     // Create classes on the builder.
-    static STATE: StaticCell<State> = StaticCell::new();
     let state = STATE.init(State::new());
-    let mut class = CdcAcmClass::new(&mut builder, state, 64);
+    let class = CLASS.init(CdcAcmClass::new(&mut builder, state, 64));
 
     // Build the builder.
     let usb = builder.build();
@@ -78,11 +82,10 @@ pub async fn usb_device(
     // Run USB Device
     spawner.spawn(usb_task(usb)).unwrap();
 
-    // Do stuff with the class!
     loop {
         class.wait_connection().await;
         info!("Connected");
-        match echo(&mut class).await {
+        match serial_handler(class).await {
             Ok(_) => info!("OK"),
             Err(e) => info!("ERROR: {:?}", e),
         };
@@ -107,8 +110,12 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-async fn echo<'d, T: Instance + 'd>(
-    class: &mut CdcAcmClass<'d, Driver<'d, T>>,
+const NL: [u8; 1] = [b'\n'];
+const CRNL: [u8; 2] = [b'\r', b'\n'];
+const PROMPT: [u8; 8] = [0x1b, b'[', b'2', b'K', b'\r', b'>', b'>', b' '];
+
+async fn serial_handler<'a, T: Instance + 'a>(
+    class: &mut CdcAcmClass<'a, Driver<'a, T>>,
 ) -> Result<(), Disconnected> {
     let mut buf = [0; 128];
     let mut line_buffer: heapless::String<128> = heapless::String::new();
@@ -118,27 +125,69 @@ async fn echo<'d, T: Instance + 'd>(
         for c in data.utf8_chunks() {
             match c.valid() {
                 "\n" | "\r" => {
-                    info!(">> NL");
-                    class.write_packet(&[b'\r']).await?;
-                    // class.write_packet(line_buffer.as_bytes()).await?;
-                    class
-                        .write_packet(&[b'\r', b'\n', b'>', b'>', b' '])
-                        .await?;
+                    info!(
+                        "Line >>{}<< [{}] {}",
+                        line_buffer.as_str(),
+                        line_buffer.len(),
+                        line_buffer.as_bytes()
+                    );
+                    class.write_packet(&CRNL).await?;
+                    let mut has_output = false;
+                    for pkt in cmd_handler(&line_buffer).await.as_bytes().chunks(64) {
+                        has_output = true;
+                        class.write_packet(pkt).await?;
+                    }
+                    if has_output {
+                        class.write_packet(&NL).await?;
+                    }
+                    class.write_packet(&PROMPT).await?;
                     line_buffer.clear();
                 }
                 "\t" => info!(">> TAB"),
                 "\x7f" | "\x08" => {
-                    info!(">> BS");
                     line_buffer.pop();
                 }
                 s => {
-                    info!(">> String: {}", s.len());
+                    // info!("Chunk: {}", s.as_bytes());
                     line_buffer.push_str(s).ok();
                 }
             }
         }
-        class.write_packet(&[b'\r', b'>', b'>', b' ']).await?;
-        // XXX handle > 64 byte lines
-        class.write_packet(line_buffer.as_bytes()).await?;
+        class.write_packet(&PROMPT).await?;
+        for pkt in line_buffer.as_bytes().chunks(64) {
+            class.write_packet(pkt).await?;
+        }
     }
+}
+
+async fn cmd_handler(line: &heapless::String<128>) -> heapless::String<128> {
+    let mut out: heapless::String<128> = heapless::String::new();
+    if line.is_empty() {
+        return out;
+    }
+    let s = line.as_str();
+    if s.starts_with("hello") {
+        out.push_str("Hello!").ok();
+    } else if s.starts_with("get time") {
+        let mut rtc_time_rx = crate::RTC_TIME.receiver().unwrap();
+        let (h, m, s) = rtc_time_rx.get().await;
+        write!(out, "{:02}:{:02}:{02}", h, m, s).ok();
+    } else if s.starts_with("set time") {
+        if s.len() < 17 {
+            out.push_str("Expected <set time hh:mm:ss>").ok();
+        } else {
+            let (h, m, s) = (
+                &s[9..11].parse::<u8>().unwrap(),
+                &s[12..14].parse::<u8>().unwrap(),
+                &s[15..17].parse::<u8>().unwrap(),
+            );
+            let msg_pub = crate::MSG_BUS.publisher().unwrap();
+            msg_pub.publish(crate::Msg::SetTime(*h, *m, *s)).await;
+        }
+    } else {
+        out.push_str("Invalid Command <").ok();
+        out.push_str(s).ok();
+        out.push_str(">").ok();
+    }
+    out
 }

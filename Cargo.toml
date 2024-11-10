@@ -35,6 +35,8 @@ ds323x = "0.5.1"
 chrono = { version = "0.4.38", default-features = false }
 eg-seven-segment = "0.2.0"
 heapless = "0.8.0"
+noline = "0.5.0"
+embedded-io-async = "0.6.1"
 
 [profile.release]
 debug = 2

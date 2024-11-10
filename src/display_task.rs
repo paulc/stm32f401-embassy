@@ -105,6 +105,7 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, _rxdma: DisplaySpiRxDma
     .ok();
 
     let mut rtc_time_rx = crate::RTC_TIME.receiver().unwrap();
+
     info!("DIGIT OFFSETS >> {:?}", DIGIT_OFFSETS);
     info!("SEPARATOR OFFSETS >> {:?}", SEPARATOR_OFFSETS);
 
