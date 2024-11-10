@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use display_task::DisplayPins;
 use embassy_executor::Spawner;
 use embassy_stm32::{bind_interrupts, exti::Channel, gpio::Pin, time::Hertz, usb};
 use embassy_sync::{
@@ -18,20 +19,17 @@ mod led_task;
 mod line_input;
 mod usb_task;
 
-use display_task::DisplayPins;
-
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<usb_task::UsbOtgPeripheral>;
 });
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Msg {
     SetTime(u8, u8, u8),
 }
 
 static RTC_TIME: Watch<CriticalSectionRawMutex, (u8, u8, u8), 4> = Watch::new();
 static MSG_BUS: PubSubChannel<CriticalSectionRawMutex, Msg, 4, 4, 4> = PubSubChannel::new();
-
 static FLASH: AtomicBool = AtomicBool::new(true);
 
 #[embassy_executor::main]
