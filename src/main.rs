@@ -14,7 +14,6 @@ mod button_task;
 mod display_task;
 mod i2c_task;
 mod led_task;
-mod noline_task;
 mod usb_task;
 
 use display_task::DisplayPins;

@@ -1,10 +1,8 @@
-use defmt::*;
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_usb::class::cdc_acm::CdcAcmClass;
-use noline::builder::EditorBuilder;
 
-struct Io<'a, T: Instance + 'a> {
-    class: &'a mut CdcAcmClass<'a, Driver<'a, T>>,
+pub struct Io<'a, T: Instance + 'a> {
+    class: CdcAcmClass<'a, Driver<'a, T>>,
     buf: heapless::Deque<u8, 64>,
 }
 
@@ -12,16 +10,20 @@ impl<'a, T> Io<'a, T>
 where
     T: Instance,
 {
-    fn new(class: &'a mut CdcAcmClass<'a, Driver<'a, T>>) -> Self {
+    pub fn new(class: CdcAcmClass<'a, Driver<'a, T>>) -> Self {
         return Io {
             class,
             buf: heapless::Deque::new(),
         };
     }
+
+    pub async fn wait_connection(&mut self) {
+        self.class.wait_connection().await;
+    }
 }
 
 #[derive(Debug)]
-struct IoError(());
+pub struct IoError(());
 
 impl embedded_io_async::Error for IoError {
     fn kind(&self) -> embedded_io_async::ErrorKind {
@@ -76,26 +78,4 @@ where
     async fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
-}
-
-const MAX_LINE_SIZE: usize = 64;
-
-async fn noline_handler<'a, T: Instance + 'a>(class: &'a mut CdcAcmClass<'a, Driver<'a, T>>) {
-    let mut buffer = [0; MAX_LINE_SIZE];
-    let mut history = [0; MAX_LINE_SIZE];
-
-    let prompt = ">> ";
-    class.wait_connection().await;
-    info!("Connected");
-    let mut io = Io::new(class);
-    let mut editor = EditorBuilder::from_slice(&mut buffer)
-        .with_slice_history(&mut history)
-        .build_async(&mut io)
-        .await
-        .unwrap();
-
-    while let Ok(line) = editor.readline(prompt, &mut io).await {
-        info!("Line >>{}<<", line);
-    }
-    info!("Disconnected");
 }
