@@ -15,9 +15,17 @@ pub type UsbOtgPeripheral = embassy_stm32::peripherals::USB_OTG_FS;
 pub type UsbOtgDmPin = embassy_stm32::peripherals::PA11;
 pub type UsbOtgDpPin = embassy_stm32::peripherals::PA12;
 
+// USB EP Buffer
+static EP_OUT_BUFFER: StaticCell<[u8; 256]> = StaticCell::new();
+
+// Create embassy-usb DeviceBuilder using the driver and config.
+// It needs some buffers for building the descriptors.
+static CONFIG_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
+static BOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
+static MSOS_DESCRIPTOR: StaticCell<[u8; 0]> = StaticCell::new(); // No MSOS descriptor
+static CONTROL_BUF: StaticCell<[u8; 64]> = StaticCell::new();
+
 static STATE: StaticCell<State> = StaticCell::new();
-static CLASS: StaticCell<CdcAcmClass<'static, Driver<'static, UsbOtgPeripheral>>> =
-    StaticCell::new();
 
 #[embassy_executor::task]
 pub async fn usb_device(
@@ -34,7 +42,6 @@ pub async fn usb_device(
     // has to support it or USB won't work at all. See docs on `vbus_detection` for details.
     config.vbus_detection = false;
 
-    static EP_OUT_BUFFER: StaticCell<[u8; 256]> = StaticCell::new();
     let driver = Driver::new_fs(
         usb_otg,
         Irqs,
@@ -44,11 +51,11 @@ pub async fn usb_device(
         config,
     );
 
-    // Create embassy-usb Config
+    // embassy-usb config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("Embassy");
     config.product = Some("USB-Serial");
-    config.serial_number = Some("12345678");
+    config.serial_number = Some("_stm32");
 
     // Required for windows compatibility.
     // https://developer.nordicsemi.com/nRF_Connect_SDK/doc/1.9.1/kconfig/CONFIG_CDC_ACM_IAD.html#help
@@ -57,45 +64,44 @@ pub async fn usb_device(
     config.device_protocol = 0x01;
     config.composite_with_iads = true;
 
-    // Create embassy-usb DeviceBuilder using the driver and config.
-    // It needs some buffers for building the descriptors.
-    static CONFIG_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
-    static BOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
-    static CONTROL_BUF: StaticCell<[u8; 64]> = StaticCell::new();
-
+    // USB device builder
     let mut builder = Builder::new(
         driver,
         config,
         CONFIG_DESCRIPTOR.init([0; 256]),
         BOS_DESCRIPTOR.init([0; 256]),
-        &mut [], // no msos descriptors
+        MSOS_DESCRIPTOR.init([]),
         CONTROL_BUF.init([0; 64]),
     );
 
-    // Create classes on the builder.
+    // Create CDC ACM class on the builder.
     let state = STATE.init(State::new());
-    let class = CLASS.init(CdcAcmClass::new(&mut builder, state, 64));
+    let class = CdcAcmClass::new(&mut builder, state, 64);
 
-    // Build the builder.
+    // Build the USB task
     let usb = builder.build();
 
     // Run USB Device
     spawner.spawn(usb_task(usb)).unwrap();
-
-    loop {
-        class.wait_connection().await;
-        info!("Connected");
-        match serial_handler(class).await {
-            Ok(_) => info!("OK"),
-            Err(e) => info!("ERROR: {:?}", e),
-        };
-        info!("Disconnected");
-    }
+    spawner.spawn(cdc_acm_task(class)).unwrap();
 }
 
 #[embassy_executor::task]
 async fn usb_task(mut usb: UsbDevice<'static, Driver<'static, UsbOtgPeripheral>>) -> ! {
     usb.run().await
+}
+
+#[embassy_executor::task]
+async fn cdc_acm_task(mut class: CdcAcmClass<'static, Driver<'static, UsbOtgPeripheral>>) -> ! {
+    loop {
+        class.wait_connection().await;
+        info!("Connected");
+        match serial_handler(&mut class).await {
+            Ok(_) => info!("CDC_ADM ok"),
+            Err(e) => info!("CDC_ACM error: {:?}", e),
+        };
+        info!("Disconnected");
+    }
 }
 
 #[derive(Format)]
