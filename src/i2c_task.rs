@@ -40,12 +40,14 @@ pub async fn rtc(i2cdev: I2cDevice, scl: I2cSclPin, sda: I2cSdaPin) {
         }
         let time = rtc.time().unwrap();
         rtc_time_tx.send((time.hour() as u8, time.minute() as u8, time.second() as u8));
+        /*
         info!(
             "Time: {:02}:{:02}:{:02}",
             time.hour(),
             time.minute(),
             time.second()
         );
+        */
         Timer::after_millis(1000).await;
     }
 }
