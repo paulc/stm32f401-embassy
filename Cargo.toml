@@ -42,6 +42,7 @@ nom = { version = "7.1.3", default-features = false }
 debug = 2
 
 [[bin]]
-name = "stm32f401-embassy"
+#name = "stm32f401-embassy"
+name = "clock"
 harness = false
 
