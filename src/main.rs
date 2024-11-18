@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+use chrono::NaiveDateTime;
+use chrono::{NaiveDate, NaiveTime};
 use defmt::*;
 use display_task::DisplayPins;
 use embassy_executor::Spawner;
@@ -25,10 +27,11 @@ bind_interrupts!(struct Irqs {
 
 #[derive(Clone, Debug)]
 enum Msg {
-    SetTime(u8, u8, u8),
+    SetTime(NaiveTime),
+    SetDate(NaiveDate),
 }
 
-static RTC_TIME: Watch<CriticalSectionRawMutex, (u8, u8, u8), 4> = Watch::new();
+static RTC_TIME: Watch<CriticalSectionRawMutex, NaiveDateTime, 4> = Watch::new();
 static MSG_BUS: PubSubChannel<CriticalSectionRawMutex, Msg, 4, 4, 4> = PubSubChannel::new();
 static FLASH: AtomicBool = AtomicBool::new(true);
 

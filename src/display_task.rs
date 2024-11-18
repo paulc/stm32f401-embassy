@@ -1,3 +1,5 @@
+use chrono::{Datelike, NaiveDateTime, Timelike};
+use core::fmt::Write;
 use defmt::info;
 use display_interface_spi::SPIInterface;
 use eg_seven_segment::{Digit, Segments, SevenSegmentStyle, SevenSegmentStyleBuilder};
@@ -33,6 +35,11 @@ const SEGMENT_COLOUR: Rgb565 = Rgb565::GREEN;
 const BACKGROUND_COLOUR: Rgb565 = Rgb565::WHITE;
 const START_Y: i32 = 60;
 const START_X: i32 = 2;
+const DATE_X: i32 = 20;
+const DATE_Y: i32 = START_Y + DIGIT_HEIGHT as i32 + 40;
+const DATE_COLOUR: Rgb565 = Rgb565::GREEN;
+const DATE_WIDTH: u32 = 200;
+const DATE_HEIGHT: u32 = 24;
 
 // START_X | DIGIT | SP | DIGIT | SP | SEP | SP | DIGIT | SP | DIGIT | SP | SEP | SP | DIGIT | SEP
 const SEPARATOR_OFFSETS: [i32; 2] = [
@@ -58,18 +65,18 @@ pub struct DisplayPins {
 }
 
 #[embassy_executor::task]
-pub async fn display(pins: DisplayPins, spi: DisplaySpi, _rxdma: DisplaySpiRxDma) {
+pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma) {
     let mut config = spi::Config::default();
     config.mode = spi::Mode {
         polarity: spi::Polarity::IdleLow,
         phase: spi::Phase::CaptureOnFirstTransition,
     };
-    config.frequency = Hertz(15_000_000);
+    config.frequency = Hertz(4_000_000);
 
     let mut delay = embassy_time::Delay;
 
-    // let spi_bus = spi::Spi::new_txonly(spi, pins.sck, pins.mosi, rxdma, config);
-    let spi_bus = spi::Spi::new_blocking_txonly(spi, pins.sck, pins.mosi, config);
+    let spi_bus = spi::Spi::new_txonly(spi, pins.sck, pins.mosi, rxdma, config);
+    // let spi_bus = spi::Spi::new_blocking_txonly(spi, pins.sck, pins.mosi, config);
 
     let lcd_dc = Output::new(pins.dc, Level::Low, Speed::High);
     let lcd_cs = Output::new(pins.cs, Level::High, Speed::High);
@@ -93,7 +100,7 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, _rxdma: DisplaySpiRxDma
     info!("Starting Display");
     lcd_backlight.set_high();
 
-    display.clear(Rgb565::WHITE).ok();
+    display.clear(BACKGROUND_COLOUR).ok();
 
     Text::with_alignment(
         "HEADER HEADER",
@@ -119,11 +126,11 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, _rxdma: DisplaySpiRxDma
 
     draw_separators(&mut display, segment_style);
 
-    let mut t_prev: [u8; 6] = [11; 6]; // Make sure all digits are invalid
+    let mut prev: Option<NaiveDateTime> = None;
 
     loop {
         let t = rtc_time_rx.changed().await;
-        t_prev = draw_clock(&mut display, segment_style, background_style, t, t_prev);
+        prev = draw_clock(&mut display, segment_style, background_style, t, prev);
     }
 }
 
@@ -142,18 +149,31 @@ where
     }
 }
 
+fn digits(t: NaiveDateTime) -> [u8; 6] {
+    let (h, m, s) = (
+        t.time().hour() as u8,
+        t.time().minute() as u8,
+        t.time().second() as u8,
+    );
+    [h / 10, h % 10, m / 10, m % 10, s / 10, s % 10]
+}
+
 fn draw_clock<D>(
     display: &mut D,
     segment_style: SevenSegmentStyle<Rgb565>,
     background_style: PrimitiveStyle<Rgb565>,
-    (h, m, s): (u8, u8, u8),
-    t_prev: [u8; 6],
-) -> [u8; 6]
+    t: NaiveDateTime,
+    t_prev: Option<NaiveDateTime>,
+) -> Option<NaiveDateTime>
 where
     D: DrawTarget<Color = Rgb565>,
 {
-    let t_next = [h / 10, h % 10, m / 10, m % 10, s / 10, s % 10];
-    for ((digit, prev), x_offset) in t_next.into_iter().zip(t_prev).zip(DIGIT_OFFSETS) {
+    let prev_digits = match t_prev {
+        Some(t) => digits(t),
+        None => [11; 6], // Make sure all digits are invalid
+    };
+    let next_digits = digits(t);
+    for ((digit, prev), x_offset) in next_digits.into_iter().zip(prev_digits).zip(DIGIT_OFFSETS) {
         if digit != prev {
             Rectangle::new(
                 Point::new(x_offset, START_Y),
@@ -169,5 +189,46 @@ where
                 .ok();
         }
     }
-    t_next
+    // Update date if t_prev == None or date changed
+    if t_prev.and_then(|t_prev| {
+        if t_prev.date() == t.date() {
+            Some(())
+        } else {
+            None
+        }
+    }) == None
+    {
+        let date = t.date();
+        let mut s: heapless::String<24> = heapless::String::new();
+
+        write!(
+            s,
+            "{:02}/{:02}/{:04}",
+            date.day(),
+            date.month(),
+            date.year()
+        )
+        .ok();
+
+        info!("Date: {}", s.as_str());
+
+        // Clear date
+        Rectangle::new(
+            Point::new(DATE_X, DATE_Y - DATE_HEIGHT as i32),
+            Size::new(DATE_WIDTH, DATE_HEIGHT + 4), // Handle descender
+        )
+        .into_styled(background_style)
+        .draw(display)
+        .ok();
+
+        Text::with_alignment(
+            s.as_str(),
+            Point::new(DATE_X, DATE_Y),
+            MonoTextStyle::new(&PROFONT_24_POINT, DATE_COLOUR),
+            Alignment::Left,
+        )
+        .draw(display)
+        .ok();
+    }
+    Some(t)
 }
