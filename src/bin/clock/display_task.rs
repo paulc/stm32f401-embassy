@@ -1,8 +1,8 @@
 use chrono::{Datelike, NaiveDateTime, Timelike};
 use core::fmt::Write;
-use defmt::info;
+use defmt::{debug, info};
 use display_interface_spi::SPIInterface;
-use eg_seven_segment::{Digit, Segments, SevenSegmentStyle, SevenSegmentStyleBuilder};
+use eg_seven_segment::{Digit, Segments, SevenSegmentStyleBuilder};
 use embassy_stm32::{
     gpio::{AnyPin, Level, Output, Speed},
     spi,
@@ -37,9 +37,14 @@ const START_Y: i32 = 60;
 const START_X: i32 = 2;
 const DATE_X: i32 = 20;
 const DATE_Y: i32 = START_Y + DIGIT_HEIGHT as i32 + 40;
-const DATE_COLOUR: Rgb565 = Rgb565::GREEN;
+const DATE_COLOUR: Rgb565 = Rgb565::BLUE;
 const DATE_WIDTH: u32 = 200;
 const DATE_HEIGHT: u32 = 24;
+const TEMP_X: i32 = 20;
+const TEMP_Y: i32 = DATE_Y + 40;
+const TEMP_COLOUR: Rgb565 = Rgb565::BLUE;
+const TEMP_WIDTH: u32 = 200;
+const TEMP_HEIGHT: u32 = 24;
 
 // START_X | DIGIT | SP | DIGIT | SP | SEP | SP | DIGIT | SP | DIGIT | SP | SEP | SP | DIGIT | SEP
 const SEPARATOR_OFFSETS: [i32; 2] = [
@@ -71,7 +76,7 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma)
         polarity: spi::Polarity::IdleLow,
         phase: spi::Phase::CaptureOnFirstTransition,
     };
-    config.frequency = Hertz(4_000_000);
+    config.frequency = Hertz(15_000_000);
 
     let mut delay = embassy_time::Delay;
 
@@ -103,7 +108,7 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma)
     display.clear(BACKGROUND_COLOUR).ok();
 
     Text::with_alignment(
-        "HEADER HEADER",
+        "DS3231 RTC",
         Point::new(20, 29),
         MonoTextStyle::new(&PROFONT_24_POINT, Rgb565::RED),
         Alignment::Left,
@@ -112,32 +117,45 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma)
     .ok();
 
     let mut rtc_time_rx = crate::RTC_TIME.receiver().unwrap();
+    let mut rtc_temp_rx = crate::RTC_TEMP.receiver().unwrap();
 
-    info!("DIGIT OFFSETS >> {:?}", DIGIT_OFFSETS);
-    info!("SEPARATOR OFFSETS >> {:?}", SEPARATOR_OFFSETS);
+    debug!("DIGIT OFFSETS >> {:?}", DIGIT_OFFSETS);
+    debug!("SEPARATOR OFFSETS >> {:?}", SEPARATOR_OFFSETS);
 
+    draw_separators(&mut display);
+
+    // Store previous time so that we can clear only changed digits
+    let mut prev: Option<NaiveDateTime> = None;
+
+    let t = rtc_time_rx.get().await;
+    info!("Clock: {}:{}:{}", t.hour(), t.minute(), t.second());
+    prev = draw_clock(&mut display, t, prev);
+    if let Some(temp) = rtc_temp_rx.try_get() {
+        draw_temp(&mut display, temp);
+    }
+
+    loop {
+        let t = rtc_time_rx.changed().await;
+        prev = draw_clock(&mut display, t, prev);
+        if t.second() == 0 {
+            if let Some(temp) = rtc_temp_rx.try_get() {
+                draw_temp(&mut display, temp);
+            }
+        }
+    }
+}
+
+fn draw_separators<D>(display: &mut D)
+where
+    D: DrawTarget<Color = Rgb565>,
+{
     let segment_style = SevenSegmentStyleBuilder::new()
         .digit_size(Size::new(DIGIT_WIDTH, DIGIT_HEIGHT))
         .digit_spacing(DIGIT_SPACING)
         .segment_width(SEGMENT_WIDTH)
         .segment_color(SEGMENT_COLOUR)
         .build();
-    let background_style = PrimitiveStyle::with_fill(BACKGROUND_COLOUR);
 
-    draw_separators(&mut display, segment_style);
-
-    let mut prev: Option<NaiveDateTime> = None;
-
-    loop {
-        let t = rtc_time_rx.changed().await;
-        prev = draw_clock(&mut display, segment_style, background_style, t, prev);
-    }
-}
-
-fn draw_separators<D>(display: &mut D, segment_style: SevenSegmentStyle<Rgb565>)
-where
-    D: DrawTarget<Color = Rgb565>,
-{
     for x_offset in SEPARATOR_OFFSETS {
         Text::new(
             ":",
@@ -158,16 +176,50 @@ fn digits(t: NaiveDateTime) -> [u8; 6] {
     [h / 10, h % 10, m / 10, m % 10, s / 10, s % 10]
 }
 
+fn draw_temp<D>(display: &mut D, temp: f32)
+where
+    D: DrawTarget<Color = Rgb565>,
+{
+    let mut s: heapless::String<24> = heapless::String::new();
+
+    write!(s, "Temp: {:.1}°", temp).ok();
+
+    // Clear Temp
+    let background_style = PrimitiveStyle::with_fill(BACKGROUND_COLOUR);
+    Rectangle::new(
+        Point::new(TEMP_X, TEMP_Y - TEMP_HEIGHT as i32),
+        Size::new(TEMP_WIDTH, TEMP_HEIGHT + 4), // Handle descender
+    )
+    .into_styled(background_style)
+    .draw(display)
+    .ok();
+
+    Text::with_alignment(
+        s.as_str(),
+        Point::new(TEMP_X, TEMP_Y),
+        MonoTextStyle::new(&PROFONT_24_POINT, TEMP_COLOUR),
+        Alignment::Left,
+    )
+    .draw(display)
+    .ok();
+}
+
 fn draw_clock<D>(
     display: &mut D,
-    segment_style: SevenSegmentStyle<Rgb565>,
-    background_style: PrimitiveStyle<Rgb565>,
     t: NaiveDateTime,
     t_prev: Option<NaiveDateTime>,
 ) -> Option<NaiveDateTime>
 where
     D: DrawTarget<Color = Rgb565>,
 {
+    let background_style = PrimitiveStyle::with_fill(BACKGROUND_COLOUR);
+    let segment_style = SevenSegmentStyleBuilder::new()
+        .digit_size(Size::new(DIGIT_WIDTH, DIGIT_HEIGHT))
+        .digit_spacing(DIGIT_SPACING)
+        .segment_width(SEGMENT_WIDTH)
+        .segment_color(SEGMENT_COLOUR)
+        .build();
+
     let prev_digits = match t_prev {
         Some(t) => digits(t),
         None => [11; 6], // Make sure all digits are invalid
@@ -209,8 +261,6 @@ where
             date.year()
         )
         .ok();
-
-        info!("Date: {}", s.as_str());
 
         // Clear date
         Rectangle::new(

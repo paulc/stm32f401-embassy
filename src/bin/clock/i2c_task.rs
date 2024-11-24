@@ -1,6 +1,6 @@
 use core::fmt::Write;
 use defmt::{error, info};
-use ds323x::{DateTimeAccess, Ds323x, NaiveDateTime};
+use ds323x::{DateTimeAccess, Ds323x, NaiveDateTime, Timelike};
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::time::Hertz;
 use embassy_sync::pubsub::WaitResult;
@@ -19,20 +19,22 @@ const _DS3231_STATUS: u8 = 0x0F;
 pub async fn rtc(i2cdev: I2cDevice, scl: I2cSclPin, sda: I2cSdaPin) {
     let i2c = I2c::new_blocking(i2cdev, scl, sda, Hertz(400_000), Default::default());
     let rtc_time_tx = crate::RTC_TIME.sender();
+    let rtc_temp_tx = crate::RTC_TEMP.sender();
     let mut sub = crate::MSG_BUS.subscriber().unwrap();
     let mut rtc = Ds323x::new_ds3231(i2c);
     match rtc.enable() {
         Ok(_) => {}
         Err(_) => panic!("Error enabling RTC"),
     }
-    rtc.use_int_sqw_output_as_square_wave().ok();
-    rtc.enable_32khz_output().ok();
     info!(
         "RTC: stopped={} running={} temperature={}",
         rtc.has_been_stopped().ok(),
         rtc.running().ok(),
         rtc.temperature().ok(),
     );
+    if let Ok(temp) = rtc.temperature() {
+        rtc_temp_tx.send(temp);
+    }
     loop {
         // Check message bus
         while let Some(msg) = sub.try_next_message() {
@@ -57,7 +59,15 @@ pub async fn rtc(i2cdev: I2cDevice, scl: I2cSclPin, sda: I2cSdaPin) {
             }
         }
         match rtc.datetime() {
-            Ok(time) => rtc_time_tx.send(time),
+            Ok(time) => {
+                rtc_time_tx.send(time);
+                // Update temperature every minute
+                if time.second() == 0 {
+                    if let Ok(temp) = rtc.temperature() {
+                        rtc_temp_tx.send(temp);
+                    }
+                }
+            }
             Err(e) => {
                 let mut s: String<32> = String::new();
                 write!(s, "{:?}", e).ok();

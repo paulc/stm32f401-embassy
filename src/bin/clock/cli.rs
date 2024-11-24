@@ -15,6 +15,7 @@ enum CliMsg {
     Hello,
     GetTime,
     GetDate,
+    GetTemp,
     SetTime(NaiveTime),
     SetDate(NaiveDate),
 }
@@ -95,6 +96,19 @@ fn get_date_parser(input: &str) -> IResult<&str, CliMsg, Error<&str>> {
     )(input)
 }
 
+fn get_temp_parser(input: &str) -> IResult<&str, CliMsg, Error<&str>> {
+    value(
+        CliMsg::GetTemp,
+        tuple((
+            multispace0,
+            tag("get"),
+            multispace1,
+            tag("temp"),
+            multispace0,
+        )),
+    )(input)
+}
+
 fn hello_parser(input: &str) -> IResult<&str, CliMsg, Error<&str>> {
     value(
         CliMsg::Hello,
@@ -107,6 +121,7 @@ fn cli_parser(input: &str) -> IResult<&str, CliMsg, Error<&str>> {
         hello_parser,
         get_time_parser,
         get_date_parser,
+        get_temp_parser,
         set_time_parser,
         set_date_parser,
     ))(input)
@@ -144,6 +159,11 @@ pub async fn cli(line: &heapless::String<128>) -> heapless::String<128> {
                 date.year()
             )
             .ok();
+        }
+        Ok((_, CliMsg::GetTemp)) => {
+            let mut rtc_temp_rx = crate::RTC_TEMP.receiver().unwrap();
+            let temp = rtc_temp_rx.get().await;
+            write!(out, "Temp: {:.1}°C", temp).ok();
         }
         Ok((_, CliMsg::SetTime(t))) => {
             let msg_pub = crate::MSG_BUS.publisher().unwrap();

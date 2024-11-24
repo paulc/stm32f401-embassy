@@ -31,9 +31,11 @@ enum Msg {
     SetDate(NaiveDate),
 }
 
+// Global values
 static RTC_TIME: Watch<CriticalSectionRawMutex, NaiveDateTime, 4> = Watch::new();
+static RTC_TEMP: Watch<CriticalSectionRawMutex, f32, 4> = Watch::new();
 static MSG_BUS: PubSubChannel<CriticalSectionRawMutex, Msg, 4, 4, 4> = PubSubChannel::new();
-static FLASH: AtomicBool = AtomicBool::new(true);
+static FLASH: AtomicBool = AtomicBool::new(false);
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -49,7 +51,7 @@ async fn main(spawner: Spawner) {
         config.rcc.pll = Some(Pll {
             prediv: PllPreDiv::DIV25,  // 1Mhz
             mul: PllMul::MUL240,       // 240Mhz
-            divp: Some(PllPDiv::DIV4), // 240MHz / 4 = 60MHz SYSCLK
+            divp: Some(PllPDiv::DIV4), // 240MHz / 4 = 60Mhz SYSCLK
             divq: Some(PllQDiv::DIV5), // 240MHz / 5 = 48MHz USB CLK
             divr: None,
         });
