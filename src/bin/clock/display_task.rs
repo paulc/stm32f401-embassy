@@ -8,6 +8,7 @@ use embassy_stm32::{
     spi,
     time::Hertz,
 };
+use embassy_sync::pubsub::WaitResult;
 use embedded_graphics::{
     draw_target::DrawTarget,
     mono_font::MonoTextStyle,
@@ -134,8 +135,19 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma)
         draw_temp(&mut display, temp);
     }
 
+    // Get msg bus subscription
+    let mut sub = crate::MSG_BUS.subscriber().unwrap();
+
     loop {
         let t = rtc_time_rx.changed().await;
+        while let Some(msg) = sub.try_next_message() {
+            match msg {
+                WaitResult::Lagged(_) => {}
+                WaitResult::Message(m) => {
+                    info!("Message: {:?}", m);
+                }
+            }
+        }
         prev = draw_clock(&mut display, t, prev);
         if t.second() == 0 {
             if let Some(temp) = rtc_temp_rx.try_get() {
@@ -185,7 +197,7 @@ where
     write!(s, "Temp: {:.1}°", temp).ok();
 
     // Clear Temp
-    let background_style = PrimitiveStyle::with_fill(BACKGROUND_COLOUR);
+    let background_style = PrimitiveStyle::with_fill(Rgb565::CSS_AQUA); //BACKGROUND_COLOUR);
     Rectangle::new(
         Point::new(TEMP_X, TEMP_Y - TEMP_HEIGHT as i32),
         Size::new(TEMP_WIDTH, TEMP_HEIGHT + 4), // Handle descender

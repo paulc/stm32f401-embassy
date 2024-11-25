@@ -1,7 +1,10 @@
 use core::fmt::Write;
 use defmt::{error, info};
-use ds323x::{DateTimeAccess, Ds323x, NaiveDateTime, Timelike};
+use ds323x::ic::DS3231;
+use ds323x::interface::I2cInterface;
+use ds323x::{DateTimeAccess, Ds323x, Error, NaiveDateTime, Timelike};
 use embassy_stm32::i2c::I2c;
+use embassy_stm32::mode::Blocking;
 use embassy_stm32::time::Hertz;
 use embassy_sync::pubsub::WaitResult;
 use embassy_time::Timer;
@@ -15,6 +18,8 @@ const _DS3231_ADDRESS: u8 = 0x68;
 const _DS3231_CONTROL: u8 = 0x0E;
 const _DS3231_STATUS: u8 = 0x0F;
 
+type RtcInstance<'a> = Ds323x<I2cInterface<I2c<'a, Blocking>>, DS3231>;
+
 #[embassy_executor::task]
 pub async fn rtc(i2cdev: I2cDevice, scl: I2cSclPin, sda: I2cSdaPin) {
     let i2c = I2c::new_blocking(i2cdev, scl, sda, Hertz(400_000), Default::default());
@@ -22,16 +27,37 @@ pub async fn rtc(i2cdev: I2cDevice, scl: I2cSclPin, sda: I2cSdaPin) {
     let rtc_temp_tx = crate::RTC_TEMP.sender();
     let mut sub = crate::MSG_BUS.subscriber().unwrap();
     let mut rtc = Ds323x::new_ds3231(i2c);
-    match rtc.enable() {
-        Ok(_) => {}
-        Err(_) => panic!("Error enabling RTC"),
+
+    // Configure RTC
+    let rtc_setup = [
+        |rtc: &mut RtcInstance| rtc.enable(),
+        |rtc: &mut RtcInstance| rtc.clear_alarm1_matched_flag(),
+        |rtc: &mut RtcInstance| rtc.clear_alarm2_matched_flag(),
+        |rtc: &mut RtcInstance| rtc.enable_alarm1_interrupts(),
+        |rtc: &mut RtcInstance| rtc.enable_alarm2_interrupts(),
+        |rtc: &mut RtcInstance| rtc.use_int_sqw_output_as_interrupt(),
+    ];
+
+    for f in rtc_setup {
+        while let Err(e) = f(&mut rtc) {
+            match e {
+                Error::Comm(e) => {
+                    error!("RTC Comm Error (retrying): {:?}", e);
+                    Timer::after_micros(100).await;
+                }
+                _ => panic!("Error configuring RTC: {:?}", e),
+            }
+        }
     }
+
     info!(
         "RTC: stopped={} running={} temperature={}",
         rtc.has_been_stopped().ok(),
         rtc.running().ok(),
         rtc.temperature().ok(),
     );
+
+    // Set initial temp
     if let Ok(temp) = rtc.temperature() {
         rtc_temp_tx.send(temp);
     }
@@ -40,24 +66,38 @@ pub async fn rtc(i2cdev: I2cDevice, scl: I2cSclPin, sda: I2cSdaPin) {
         while let Some(msg) = sub.try_next_message() {
             match msg {
                 WaitResult::Lagged(_) => {}
-                WaitResult::Message(crate::Msg::SetTime(t)) => match rtc.datetime() {
-                    Ok(now) => {
+                WaitResult::Message(crate::Msg::SetTime(t)) => {
+                    match rtc.datetime().and_then(|now| {
                         let d = now.date();
                         let dt = NaiveDateTime::new(d, t);
-                        rtc.set_datetime(&dt).ok();
+                        rtc.set_datetime(&dt)
+                            .and_then(|_| rtc.clear_has_been_stopped_flag())
+                    }) {
+                        Ok(_) => {}
+                        Err(_) => error!("Error setting clock"),
                     }
-                    Err(_) => error!("Error setimng clock"),
-                },
-                WaitResult::Message(crate::Msg::SetDate(d)) => match rtc.datetime() {
-                    Ok(now) => {
+                }
+                WaitResult::Message(crate::Msg::SetDate(d)) => {
+                    match rtc.datetime().and_then(|now| {
                         let t = now.time();
                         let dt = NaiveDateTime::new(d, t);
-                        rtc.set_datetime(&dt).ok();
+                        rtc.set_datetime(&dt)
+                    }) {
+                        Ok(_) => {}
+                        Err(_) => error!("Error setting clock"),
                     }
-                    Err(_) => error!("Error setimng clock"),
+                }
+                WaitResult::Message(crate::Msg::SetAlarm1(t)) => match rtc
+                    .clear_alarm1_matched_flag()
+                    .and_then(|_| rtc.set_alarm1_hms(t))
+                {
+                    Ok(_) => {}
+                    Err(_) => error!("Error setting alarm"),
                 },
+                // WaitResult::Message(_) => {} // Ignore other messages
             }
         }
+        // Update global time
         match rtc.datetime() {
             Ok(time) => {
                 rtc_time_tx.send(time);

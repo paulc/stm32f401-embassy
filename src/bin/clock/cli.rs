@@ -18,6 +18,7 @@ enum CliMsg {
     GetTemp,
     SetTime(NaiveTime),
     SetDate(NaiveDate),
+    SetAlarm(NaiveTime),
 }
 
 fn _digit_parser(input: &str) -> IResult<&str, u32, Error<&str>> {
@@ -65,6 +66,26 @@ fn set_time_parser(input: &str) -> IResult<&str, CliMsg, Error<&str>> {
             "%H:%M:%S",
         ) {
             Ok(t) => Some(CliMsg::SetTime(t)),
+            Err(_) => None,
+        },
+    )(input)
+}
+
+fn set_alarm_parser(input: &str) -> IResult<&str, CliMsg, Error<&str>> {
+    map_opt(
+        tuple((
+            multispace0,
+            tag("set"),
+            multispace1,
+            tag("alarm"),
+            multispace1,
+            rest,
+        )),
+        |(_, _, _, _, _, time): (_, _, _, _, _, &str)| match NaiveTime::parse_from_str(
+            time.trim(),
+            "%H:%M:%S",
+        ) {
+            Ok(t) => Some(CliMsg::SetAlarm(t)),
             Err(_) => None,
         },
     )(input)
@@ -124,6 +145,7 @@ fn cli_parser(input: &str) -> IResult<&str, CliMsg, Error<&str>> {
         get_temp_parser,
         set_time_parser,
         set_date_parser,
+        set_alarm_parser,
     ))(input)
 }
 
@@ -173,6 +195,11 @@ pub async fn cli(line: &heapless::String<128>) -> heapless::String<128> {
         Ok((_, CliMsg::SetDate(d))) => {
             let msg_pub = crate::MSG_BUS.publisher().unwrap();
             msg_pub.publish(crate::Msg::SetDate(d)).await;
+            out.push_str("OK").ok();
+        }
+        Ok((_, CliMsg::SetAlarm(t))) => {
+            let msg_pub = crate::MSG_BUS.publisher().unwrap();
+            msg_pub.publish(crate::Msg::SetAlarm1(t)).await;
             out.push_str("OK").ok();
         }
         Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {

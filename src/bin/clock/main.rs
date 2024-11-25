@@ -13,12 +13,13 @@ use embassy_sync::{
 use portable_atomic::AtomicBool;
 use {defmt_rtt as _, panic_probe as _};
 
+mod alarm_task;
 mod button_task;
 mod cli;
 mod display_task;
-mod i2c_task;
 mod led_task;
 mod line_input;
+mod rtc_task;
 mod usb_task;
 
 bind_interrupts!(struct Irqs {
@@ -29,6 +30,19 @@ bind_interrupts!(struct Irqs {
 enum Msg {
     SetTime(NaiveTime),
     SetDate(NaiveDate),
+    //    SetBacklight(f32),
+    SetAlarm1(NaiveTime),
+}
+
+impl defmt::Format for Msg {
+    fn format(&self, fmt: Formatter) {
+        match self {
+            Msg::SetTime(_) => defmt::write!(fmt, "<SetTime>"),
+            Msg::SetDate(_) => defmt::write!(fmt, "<SetDate>"),
+            //           Msg::SetBacklight(_) => defmt::write!(fmt, "<SetBacklight>"),
+            Msg::SetAlarm1(_) => defmt::write!(fmt, "<SetAlarm1>"),
+        }
+    }
 }
 
 // Global values
@@ -75,8 +89,9 @@ async fn main(spawner: Spawner) {
     };
 
     // Spawn tasks
-    spawner.must_spawn(i2c_task::rtc(p.I2C1, p.PB8, p.PB9));
+    spawner.must_spawn(rtc_task::rtc(p.I2C1, p.PB8, p.PB9));
     spawner.must_spawn(button_task::button(p.PA0.degrade(), p.EXTI0.degrade()));
+    spawner.must_spawn(alarm_task::alarm(p.PA1.degrade(), p.EXTI1.degrade()));
     spawner.must_spawn(led_task::blink(p.PC13.degrade()));
     spawner.must_spawn(display_task::display(display_pins, p.SPI2, p.DMA1_CH4));
     spawner.must_spawn(usb_task::usb_device(spawner, p.USB_OTG_FS, p.PA12, p.PA11));
