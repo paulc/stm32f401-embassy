@@ -9,14 +9,14 @@ pub async fn blink(led: AnyPin) {
     led.set_high();
 
     loop {
-        if crate::FLASH.load(Ordering::Relaxed) {
+        if crate::ALARM.load(Ordering::Relaxed) {
             info!("FLASH -> true");
             led.set_low();
             Timer::after_millis(100).await;
             led.set_high();
             Timer::after_millis(100).await;
         } else {
-            Timer::after_millis(10).await;
+            Timer::after_millis(100).await;
         }
     }
 }

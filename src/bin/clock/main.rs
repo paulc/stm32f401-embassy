@@ -30,7 +30,7 @@ bind_interrupts!(struct Irqs {
 enum Msg {
     SetTime(NaiveTime),
     SetDate(NaiveDate),
-    //    SetBacklight(f32),
+    // SetBacklight(f32),
     SetAlarm1(NaiveTime),
 }
 
@@ -39,7 +39,7 @@ impl defmt::Format for Msg {
         match self {
             Msg::SetTime(_) => defmt::write!(fmt, "<SetTime>"),
             Msg::SetDate(_) => defmt::write!(fmt, "<SetDate>"),
-            //           Msg::SetBacklight(_) => defmt::write!(fmt, "<SetBacklight>"),
+            // Msg::SetBacklight(_) => defmt::write!(fmt, "<SetBacklight>"),
             Msg::SetAlarm1(_) => defmt::write!(fmt, "<SetAlarm1>"),
         }
     }
@@ -49,7 +49,7 @@ impl defmt::Format for Msg {
 static RTC_TIME: Watch<CriticalSectionRawMutex, NaiveDateTime, 4> = Watch::new();
 static RTC_TEMP: Watch<CriticalSectionRawMutex, f32, 4> = Watch::new();
 static MSG_BUS: PubSubChannel<CriticalSectionRawMutex, Msg, 4, 4, 4> = PubSubChannel::new();
-static FLASH: AtomicBool = AtomicBool::new(false);
+static ALARM: AtomicBool = AtomicBool::new(false);
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {

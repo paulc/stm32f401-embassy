@@ -20,6 +20,38 @@ const _DS3231_STATUS: u8 = 0x0F;
 
 type RtcInstance<'a> = Ds323x<I2cInterface<I2c<'a, Blocking>>, DS3231>;
 
+/*
+// Call RTC method with retry
+//    --> src/bin/clock/rtc_task.rs:51:27
+//    |
+//51  |     retry(&mut rtc, |rtc| rtc.enable());
+//    |                           ^^^^^^^^^^^^ expected `Result<(), Error<Error<_, _>, ()>>`, found `Result<(), Error<Error, ()>>`
+//    |
+//    = note: `embassy_stm32::i2c::Error` and `ds323x::Error<_, _>` have similar names, but are actually distinct types
+//note: `embassy_stm32::i2c::Error` is defined in crate `embassy_stm32`
+//   --> /Users/paulc/Sync/Development/embedded-rust/embassy/embassy-stm32/src/i2c/mod.rs:30:1
+//    |
+//30  | pub enum Error {
+//    | ^^^^^^^^^^^^^^
+//note: `ds323x::Error<_, _>` is defined in crate `ds323x`
+//   --> /Users/paulc/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ds323x-0.5.1/src/lib.rs:378:1
+//    |
+//378 | pub enum Error<CommE, PinE> {
+//    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+type RtcFn<'a, CommE, PinE> = fn(
+    &mut Ds323x<I2cInterface<I2c<'a, Blocking>>, DS3231>,
+) -> Result<(), Error<Error<CommE, PinE>, ()>>;
+
+
+fn retry<'a, CommE, PinE>(
+    rtc: &'a mut RtcInstance<'a>,
+    f: RtcFn<'a, CommE, PinE>,
+) -> Result<(), Error<Error<CommE, PinE>, ()>> {
+    f(rtc)
+}
+*/
+
 #[embassy_executor::task]
 pub async fn rtc(i2cdev: I2cDevice, scl: I2cSclPin, sda: I2cSdaPin) {
     let i2c = I2c::new_blocking(i2cdev, scl, sda, Hertz(400_000), Default::default());
@@ -38,6 +70,7 @@ pub async fn rtc(i2cdev: I2cDevice, scl: I2cSclPin, sda: I2cSdaPin) {
         |rtc: &mut RtcInstance| rtc.use_int_sqw_output_as_interrupt(),
     ];
 
+    // Use wrapper to call setup functions
     for f in rtc_setup {
         while let Err(e) = f(&mut rtc) {
             match e {
