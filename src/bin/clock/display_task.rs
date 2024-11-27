@@ -21,7 +21,7 @@ use embedded_graphics::{
 };
 use embedded_hal_bus::spi::ExclusiveDevice;
 use ili9341::{DisplaySize240x320, Ili9341, Orientation};
-use profont::{PROFONT_20_POINT, PROFONT_24_POINT};
+use profont::{PROFONT_18_POINT, PROFONT_24_POINT};
 
 pub type DisplaySpi = embassy_stm32::peripherals::SPI2;
 pub type DisplaySpiSck = embassy_stm32::peripherals::PB13;
@@ -138,11 +138,11 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma)
     let mut rtc_time_rx = crate::RTC_TIME.receiver().unwrap();
     let mut rtc_temp_rx = crate::RTC_TEMP.receiver().unwrap();
     let mut alarm1_time_rx = crate::ALARM1_TIME.receiver().unwrap();
-    let mut alarm1_match_rx = crate::ALARM1_MATCH.receiver().unwrap();
+    // let mut alarm1_match_rx = crate::ALARM1_MATCH.receiver().unwrap();
 
     let mut current_temp: f32 = 0.0;
     let mut current_alarm1_time: Option<NaiveTime> = None;
-    let mut current_alatm1_match: bool = false;
+    // let mut current_alarm1_match: bool = false;
 
     // Get initial values
     let t = rtc_time_rx.get().await;
@@ -150,6 +150,13 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma)
     prev = draw_clock(&mut display, t, prev);
     if let Some(temp) = rtc_temp_rx.try_get() {
         draw_temp(&mut display, temp);
+        current_temp = temp;
+    }
+    if let Some(alarm_time) = alarm1_time_rx.try_get() {
+        draw_alarm(&mut display, alarm_time);
+        current_alarm1_time = alarm_time;
+    } else {
+        draw_alarm(&mut display, None);
     }
 
     // Loop - update every second (await RTC_TIME update)
@@ -164,18 +171,19 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma)
             }
         }
         prev = draw_clock(&mut display, t, prev);
+        if let Some(alarm_time) = alarm1_time_rx.try_changed() {
+            // Update alarm
+            if alarm_time != current_alarm1_time {
+                draw_alarm(&mut display, alarm_time);
+                current_alarm1_time = alarm_time;
+            }
+        }
         if t.second() == 0 {
             // Update temp
             if let Some(temp) = rtc_temp_rx.try_changed() {
                 if temp != current_temp {
                     draw_temp(&mut display, temp);
                     current_temp = temp;
-                }
-            }
-            if let Some(alarm_time) = alarm1_time_rx.try_changed() {
-                if alarm_time != current_alarm1_time {
-                    draw_alarm(&mut display, alarm_time);
-                    current_alarm1_time = alarm_time;
                 }
             }
         }
@@ -230,6 +238,8 @@ where
         None => write!(s, "Alarm 1: Not Set"),
     };
 
+    info!("Draw Alarm: {}", s.as_str());
+
     // Clear alarm
     let background_style = PrimitiveStyle::with_fill(BACKGROUND_COLOUR);
     Rectangle::new(
@@ -243,7 +253,7 @@ where
     Text::with_alignment(
         s.as_str(),
         Point::new(ALARM1_X, ALARM1_Y),
-        MonoTextStyle::new(&PROFONT_20_POINT, ALARM1_COLOUR),
+        MonoTextStyle::new(&PROFONT_18_POINT, ALARM1_COLOUR),
         Alignment::Left,
     )
     .draw(display)
@@ -259,7 +269,7 @@ where
     write!(s, "Temp: {:.1}°", temp).ok();
 
     // Clear Temp
-    let background_style = PrimitiveStyle::with_fill(Rgb565::CSS_AQUA); //BACKGROUND_COLOUR);
+    let background_style = PrimitiveStyle::with_fill(BACKGROUND_COLOUR);
     Rectangle::new(
         Point::new(TEMP_X, TEMP_Y - TEMP_HEIGHT as i32),
         Size::new(TEMP_WIDTH, TEMP_HEIGHT + 4), // Handle descender

@@ -16,6 +16,7 @@ enum CliMsg {
     GetTime,
     GetDate,
     GetTemp,
+    GetAlarm,
     SetTime(NaiveTime),
     SetDate(NaiveDate),
     SetAlarm(NaiveTime),
@@ -130,6 +131,19 @@ fn get_temp_parser(input: &str) -> IResult<&str, CliMsg, Error<&str>> {
     )(input)
 }
 
+fn get_alarm_parser(input: &str) -> IResult<&str, CliMsg, Error<&str>> {
+    value(
+        CliMsg::GetAlarm,
+        tuple((
+            multispace0,
+            tag("get"),
+            multispace1,
+            tag("alarm"),
+            multispace0,
+        )),
+    )(input)
+}
+
 fn hello_parser(input: &str) -> IResult<&str, CliMsg, Error<&str>> {
     value(
         CliMsg::Hello,
@@ -141,11 +155,12 @@ fn cli_parser(input: &str) -> IResult<&str, CliMsg, Error<&str>> {
     alt((
         hello_parser,
         get_time_parser,
-        get_date_parser,
-        get_temp_parser,
         set_time_parser,
+        get_date_parser,
         set_date_parser,
+        get_alarm_parser,
         set_alarm_parser,
+        get_temp_parser,
     ))(input)
 }
 
@@ -196,6 +211,20 @@ pub async fn cli(line: &heapless::String<128>) -> heapless::String<128> {
             let msg_pub = crate::MSG_BUS.publisher().unwrap();
             msg_pub.publish(crate::Msg::SetDate(d)).await;
             out.push_str("OK").ok();
+        }
+        Ok((_, CliMsg::GetAlarm)) => {
+            let mut rtc_alarm_rx = crate::ALARM1_TIME.receiver().unwrap();
+            match rtc_alarm_rx.try_get() {
+                Some(Some(t)) => write!(
+                    out,
+                    "Alarm1: {:02}:{:02}:{:02}",
+                    t.hour(),
+                    t.minute(),
+                    t.second()
+                )
+                .ok(),
+                _ => write!(out, "Alarm1 Not Set").ok(),
+            };
         }
         Ok((_, CliMsg::SetAlarm(t))) => {
             let msg_pub = crate::MSG_BUS.publisher().unwrap();

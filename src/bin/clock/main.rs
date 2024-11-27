@@ -52,8 +52,8 @@ static MSG_BUS: PubSubChannel<CriticalSectionRawMutex, Msg, 4, 4, 4> = PubSubCha
 static ALARM: AtomicBool = AtomicBool::new(false);
 static ALARM1_TIME: Watch<CriticalSectionRawMutex, Option<NaiveTime>, 4> = Watch::new();
 static ALARM1_MATCH: Watch<CriticalSectionRawMutex, bool, 4> = Watch::new();
-static ALARM2_TIME: Watch<CriticalSectionRawMutex, Option<NaiveTime>, 4> = Watch::new();
-static ALARM2_MATCH: Watch<CriticalSectionRawMutex, bool, 4> = Watch::new();
+// static ALARM2_TIME: Watch<CriticalSectionRawMutex, Option<NaiveTime>, 4> = Watch::new();
+// static ALARM2_MATCH: Watch<CriticalSectionRawMutex, bool, 4> = Watch::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
