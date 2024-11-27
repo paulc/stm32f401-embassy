@@ -21,23 +21,6 @@ const _DS3231_STATUS: u8 = 0x0F;
 type RtcInstance<'a> = Ds323x<I2cInterface<I2c<'a, Blocking>>, DS3231>;
 
 /*
-// Call RTC method with retry
-//    --> src/bin/clock/rtc_task.rs:51:27
-//    |
-//51  |     retry(&mut rtc, |rtc| rtc.enable());
-//    |                           ^^^^^^^^^^^^ expected `Result<(), Error<Error<_, _>, ()>>`, found `Result<(), Error<Error, ()>>`
-//    |
-//    = note: `embassy_stm32::i2c::Error` and `ds323x::Error<_, _>` have similar names, but are actually distinct types
-//note: `embassy_stm32::i2c::Error` is defined in crate `embassy_stm32`
-//   --> /Users/paulc/Sync/Development/embedded-rust/embassy/embassy-stm32/src/i2c/mod.rs:30:1
-//    |
-//30  | pub enum Error {
-//    | ^^^^^^^^^^^^^^
-//note: `ds323x::Error<_, _>` is defined in crate `ds323x`
-//   --> /Users/paulc/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ds323x-0.5.1/src/lib.rs:378:1
-//    |
-//378 | pub enum Error<CommE, PinE> {
-//    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 type RtcFn<'a, CommE, PinE> = fn(
     &mut Ds323x<I2cInterface<I2c<'a, Blocking>>, DS3231>,
@@ -57,6 +40,8 @@ pub async fn rtc(i2cdev: I2cDevice, scl: I2cSclPin, sda: I2cSdaPin) {
     let i2c = I2c::new_blocking(i2cdev, scl, sda, Hertz(400_000), Default::default());
     let rtc_time_tx = crate::RTC_TIME.sender();
     let rtc_temp_tx = crate::RTC_TEMP.sender();
+    let alarm1_time_tx = crate::ALARM1_TIME.sender();
+    let alarm1_match_tx = crate::ALARM1_MATCH.sender();
     let mut sub = crate::MSG_BUS.subscriber().unwrap();
     let mut rtc = Ds323x::new_ds3231(i2c);
 
@@ -124,7 +109,10 @@ pub async fn rtc(i2cdev: I2cDevice, scl: I2cSclPin, sda: I2cSdaPin) {
                     .clear_alarm1_matched_flag()
                     .and_then(|_| rtc.set_alarm1_hms(t))
                 {
-                    Ok(_) => {}
+                    Ok(_) => {
+                        alarm1_time_tx.send(Some(t));
+                        alarm1_match_tx.send(false);
+                    }
                     Err(_) => error!("Error setting alarm"),
                 },
                 // WaitResult::Message(_) => {} // Ignore other messages

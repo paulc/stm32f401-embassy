@@ -1,3 +1,4 @@
+use chrono::NaiveTime;
 use chrono::{Datelike, NaiveDateTime, Timelike};
 use core::fmt::Write;
 use defmt::{debug, info};
@@ -20,7 +21,7 @@ use embedded_graphics::{
 };
 use embedded_hal_bus::spi::ExclusiveDevice;
 use ili9341::{DisplaySize240x320, Ili9341, Orientation};
-use profont::PROFONT_24_POINT;
+use profont::{PROFONT_20_POINT, PROFONT_24_POINT};
 
 pub type DisplaySpi = embassy_stm32::peripherals::SPI2;
 pub type DisplaySpiSck = embassy_stm32::peripherals::PB13;
@@ -46,6 +47,11 @@ const TEMP_Y: i32 = DATE_Y + 40;
 const TEMP_COLOUR: Rgb565 = Rgb565::BLUE;
 const TEMP_WIDTH: u32 = 200;
 const TEMP_HEIGHT: u32 = 24;
+const ALARM1_X: i32 = 20;
+const ALARM1_Y: i32 = TEMP_Y + 40;
+const ALARM1_COLOUR: Rgb565 = Rgb565::BLUE;
+const ALARM1_WIDTH: u32 = 200;
+const ALARM1_HEIGHT: u32 = 24;
 
 // START_X | DIGIT | SP | DIGIT | SP | SEP | SP | DIGIT | SP | DIGIT | SP | SEP | SP | DIGIT | SEP
 const SEPARATOR_OFFSETS: [i32; 2] = [
@@ -117,9 +123,6 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma)
     .draw(&mut display)
     .ok();
 
-    let mut rtc_time_rx = crate::RTC_TIME.receiver().unwrap();
-    let mut rtc_temp_rx = crate::RTC_TEMP.receiver().unwrap();
-
     debug!("DIGIT OFFSETS >> {:?}", DIGIT_OFFSETS);
     debug!("SEPARATOR OFFSETS >> {:?}", SEPARATOR_OFFSETS);
 
@@ -128,6 +131,20 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma)
     // Store previous time so that we can clear only changed digits
     let mut prev: Option<NaiveDateTime> = None;
 
+    // Get msg bus subscription
+    let mut sub = crate::MSG_BUS.subscriber().unwrap();
+
+    // Receivers for watch values
+    let mut rtc_time_rx = crate::RTC_TIME.receiver().unwrap();
+    let mut rtc_temp_rx = crate::RTC_TEMP.receiver().unwrap();
+    let mut alarm1_time_rx = crate::ALARM1_TIME.receiver().unwrap();
+    let mut alarm1_match_rx = crate::ALARM1_MATCH.receiver().unwrap();
+
+    let mut current_temp: f32 = 0.0;
+    let mut current_alarm1_time: Option<NaiveTime> = None;
+    let mut current_alatm1_match: bool = false;
+
+    // Get initial values
     let t = rtc_time_rx.get().await;
     info!("Clock: {}:{}:{}", t.hour(), t.minute(), t.second());
     prev = draw_clock(&mut display, t, prev);
@@ -135,9 +152,7 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma)
         draw_temp(&mut display, temp);
     }
 
-    // Get msg bus subscription
-    let mut sub = crate::MSG_BUS.subscriber().unwrap();
-
+    // Loop - update every second (await RTC_TIME update)
     loop {
         let t = rtc_time_rx.changed().await;
         while let Some(msg) = sub.try_next_message() {
@@ -150,8 +165,18 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma)
         }
         prev = draw_clock(&mut display, t, prev);
         if t.second() == 0 {
-            if let Some(temp) = rtc_temp_rx.try_get() {
-                draw_temp(&mut display, temp);
+            // Update temp
+            if let Some(temp) = rtc_temp_rx.try_changed() {
+                if temp != current_temp {
+                    draw_temp(&mut display, temp);
+                    current_temp = temp;
+                }
+            }
+            if let Some(alarm_time) = alarm1_time_rx.try_changed() {
+                if alarm_time != current_alarm1_time {
+                    draw_alarm(&mut display, alarm_time);
+                    current_alarm1_time = alarm_time;
+                }
             }
         }
     }
@@ -186,6 +211,43 @@ fn digits(t: NaiveDateTime) -> [u8; 6] {
         t.time().second() as u8,
     );
     [h / 10, h % 10, m / 10, m % 10, s / 10, s % 10]
+}
+
+fn draw_alarm<D>(display: &mut D, alarm_time: Option<NaiveTime>)
+where
+    D: DrawTarget<Color = Rgb565>,
+{
+    let mut s: heapless::String<24> = heapless::String::new();
+
+    let _ = match alarm_time {
+        Some(t) => write!(
+            s,
+            "Alarm 1: {:02}:{:02}:{:02}",
+            t.hour(),
+            t.minute(),
+            t.second()
+        ),
+        None => write!(s, "Alarm 1: Not Set"),
+    };
+
+    // Clear alarm
+    let background_style = PrimitiveStyle::with_fill(BACKGROUND_COLOUR);
+    Rectangle::new(
+        Point::new(ALARM1_X, ALARM1_Y - ALARM1_HEIGHT as i32),
+        Size::new(ALARM1_WIDTH, ALARM1_HEIGHT + 4), // Handle descender
+    )
+    .into_styled(background_style)
+    .draw(display)
+    .ok();
+
+    Text::with_alignment(
+        s.as_str(),
+        Point::new(ALARM1_X, ALARM1_Y),
+        MonoTextStyle::new(&PROFONT_20_POINT, ALARM1_COLOUR),
+        Alignment::Left,
+    )
+    .draw(display)
+    .ok();
 }
 
 fn draw_temp<D>(display: &mut D, temp: f32)
