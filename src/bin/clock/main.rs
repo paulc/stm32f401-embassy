@@ -10,6 +10,7 @@ use embassy_stm32::{bind_interrupts, exti::Channel, gpio::Pin, time::Hertz, usb}
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex, pubsub::PubSubChannel, watch::Watch,
 };
+use embedded_graphics::draw_target::DrawTarget;
 use portable_atomic::AtomicBool;
 use {defmt_rtt as _, panic_probe as _};
 

@@ -146,7 +146,7 @@ pub async fn display(pins: DisplayPins, spi: DisplaySpi, rxdma: DisplaySpiRxDma)
 
     // Get initial values
     let t = rtc_time_rx.get().await;
-    info!("Clock: {}:{}:{}", t.hour(), t.minute(), t.second());
+    info!("Clock: {:02}:{:02}:{:02}", t.hour(), t.minute(), t.second());
     prev = draw_clock(&mut display, t, prev);
     if let Some(temp) = rtc_temp_rx.try_get() {
         draw_temp(&mut display, temp);

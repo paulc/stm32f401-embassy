@@ -1,6 +1,7 @@
 use core::fmt::Write;
 use defmt::info;
-use embassy_stm32::mode::Async;
+// use embassy_stm32::mode::Async;
+use embassy_stm32::mode::Blocking;
 use embassy_stm32::spi::{Error, Spi};
 use embassy_stm32::{
     gpio::{AnyPin, Level, Output, Speed},
@@ -41,7 +42,8 @@ pub async fn display(d: DisplayConfig, spi: DisplaySpi) {
 
     let mut _delay = embassy_time::Delay;
 
-    let spi_bus = spi::Spi::new(spi, d.sck, d.mosi, d.miso, d.txdma, d.rxdma, config);
+    // let spi_bus = spi::Spi::new(spi, d.sck, d.mosi, d.miso, d.txdma, d.rxdma, config);
+    let spi_bus = spi::Spi::new_blocking(spi, d.sck, d.mosi, d.miso, config);
 
     let lcd_dc = Output::new(d.dc, Level::Low, Speed::High);
     let lcd_cs = Output::new(d.cs, Level::High, Speed::High);
@@ -91,16 +93,53 @@ pub async fn display(d: DisplayConfig, spi: DisplaySpi) {
 }
 
 struct AsyncIli9341<'a> {
-    spi: Spi<'a, Async>,
+    // spi: Spi<'a, Async>,
+    spi: Spi<'a, Blocking>,
     dc: Output<'a>,
     cs: Output<'a>,
     reset: Output<'a>,
 }
 
 const NOOP: u8 = 0x00;
-const COLUMN_ADDRESS_SET: u8 = 0x2a;
-const PAGE_ADDRESS_SET: u8 = 0x2b;
-const MEMORY_WRITE: u8 = 0x2c;
+const COLUMN_ADDRESS_SET: u8 = 0x2A;
+const PAGE_ADDRESS_SET: u8 = 0x2B;
+const MEMORY_WRITE: u8 = 0x2C;
+
+const ILI9341_INIT: [(u8, &[u8]); 21] = [
+    (0xEF, &[0x03, 0x80, 0x02]),
+    (0xCF, &[0x00, 0xc1, 0x30]),
+    (0xED, &[0x64, 0x03, 0x12, 0x81]),
+    (0xE8, &[0x85, 0x00, 0x78]),
+    (0xCB, &[0x39, 0x2c, 0x00, 0x34, 0x02]),
+    (0xF7, &[0x20]),
+    (0xEA, &[0x00, 0x00]),
+    (0xC0, &[0x23]),             // Power Control 1, VRH[5:0]
+    (0xC1, &[0x10]),             // Power Control 2, SAP[2:0], BT[3:0]
+    (0xC5, &[0x3e, 0x28]),       // VCM Control 1
+    (0xC7, &[0x86]),             // VCM Control 2
+    (0x36, &[0x48]),             // Memory Access Control
+    (0x3A, &[0x55]),             // Pixel Format
+    (0xB1, &[0x00, 0x18]),       // FRMCTR1
+    (0xB6, &[0x08, 0x82, 0x27]), // Display Function Control
+    (0xF2, &[0x00]),             // 3Gamma Function Disable
+    (0x26, &[0x01]),             // Gamma Curve Selected
+    (
+        0xE0,
+        &[
+            0x0f, 0x31, 0x2b, 0x0c, 0x0e, 0x08, 0x4e, 0xf1, 0x37, 0x07, 0x10, 0x03, 0x0e, 0x09,
+            0x00,
+        ],
+    ), // Set Gamma
+    (
+        0xE1,
+        &[
+            0x00, 0x0e, 0x14, 0x03, 0x11, 0x07, 0x31, 0xc1, 0x48, 0x08, 0x0f, 0x0c, 0x31, 0x36,
+            0x0f,
+        ],
+    ), // Set Gamma
+    (0x11, &[]),
+    (0x29, &[]),
+];
 
 fn encode_coords(x: u16, y: u16) -> [u8; 4] {
     let x = x.to_be_bytes();
@@ -108,7 +147,7 @@ fn encode_coords(x: u16, y: u16) -> [u8; 4] {
     [x[0], x[1], y[0], y[1]]
 }
 
-fn fmt_buf(buf: &[u8]) -> heapless::String<64> {
+fn _fmt_buf(buf: &[u8]) -> heapless::String<64> {
     let mut out = heapless::String::new();
     for b in buf.iter().rev() {
         let _ = write!(out, "{:08b} ", b);
@@ -118,7 +157,8 @@ fn fmt_buf(buf: &[u8]) -> heapless::String<64> {
 
 impl<'a> AsyncIli9341<'a> {
     pub async fn new(
-        spi: Spi<'a, Async>,
+        // spi: Spi<'a, Async>,
+        spi: Spi<'a, Blocking>,
         dc: Output<'a>,
         cs: Output<'a>,
         reset: Output<'a>,
@@ -129,57 +169,68 @@ impl<'a> AsyncIli9341<'a> {
     }
 
     async fn read_register(&mut self, register: u8, length: usize, text: &'static str) {
-        let mut buf: [u8; 16] = [0; 16];
+        let mut buf_r: [u8; 16] = [0; 16];
+        let buf_w: [u8; 16] = [0; 16];
         self.dc.set_low();
         self.cs.set_low();
-        self.spi.write(&[register]).await.unwrap();
-        //self.dc.set_high();
-        self.spi.read(&mut buf[..length]).await.unwrap();
+        // self.spi.write(&[register]).await.unwrap();
+        self.spi.blocking_write(&[register]).unwrap();
+        self.dc.set_high();
+        let r = &mut buf_r[..length];
+        let w = &buf_w[..length];
+        // self.spi.transfer(r, w).await.unwrap();
+        self.spi.blocking_transfer(r, w).unwrap();
         self.cs.set_high();
         info!("Register: {} {}", register, text);
         for i in 0..length {
-            info!("   [{}] >>> {:08b}", i, buf[i]);
+            info!("   [{}] >>> {:08b}", i, r[i]);
         }
     }
 
-    async fn init(&mut self) -> Result<(), Error> {
-        // HW reset
-        self.reset.set_high();
-        Timer::after_millis(5).await;
-        self.reset.set_low();
-        Timer::after_millis(10).await;
-        self.reset.set_high();
-        Timer::after_millis(5).await;
+    async fn command(&mut self, command: u8, data: &[u8]) -> Result<(), Error> {
+        self.dc.set_low();
+        self.cs.set_low();
+        // self.spi.write(&[command]).await?;
+        self.spi.blocking_write(&[command])?;
+        self.dc.set_high();
+        if !data.is_empty() {
+            // self.spi.write(data).await?;
+            self.spi.blocking_write(data)?;
+        }
+        self.cs.set_high();
+        Ok(())
+    }
 
+    async fn hw_reset(&mut self) {
+        self.reset.set_low();
+        Timer::after_millis(50).await;
+        self.reset.set_high();
+        Timer::after_millis(50).await;
+    }
+
+    async fn sw_reset(&mut self) -> Result<(), Error> {
         self.command(0x01, &[]).await?; // SW Reset
         Timer::after_millis(120).await;
+        Ok(())
+    }
 
-        self.read_register(0x09, 5, "Display Status >> SW Reset")
-            .await;
+    async fn init(&mut self) -> Result<(), Error> {
+        self.dc.set_high();
+        self.cs.set_high();
+        // HW reset
+        self.hw_reset().await;
 
-        /*
-        self.command(0x36, &[0x48]).await?; // Memory Access Control
-        */
+        // SW reset
+        self.sw_reset().await?;
 
-        self.command(0x3a, &[0x55]).await?; // Pixel Format
-        self.read_register(0x09, 5, "Display Status >> Pixel Format")
-            .await;
+        self.read_register(0x09, 5, "Status -> Reset").await;
 
-        self.read_register(0x0a, 2, "Display Power Mode").await;
-        self.command(0x11, &[]).await?; // Sleep Out
-        Timer::after_millis(100).await;
-        self.read_register(0x09, 5, "Display Status >> Sleep Out")
-            .await;
+        for (cmd, data) in ILI9341_INIT.into_iter() {
+            self.command(cmd, data).await?;
+        }
 
-        self.read_register(0x0a, 2, "Display Power Mode").await;
-        self.command(0x29, &[]).await?; // Display On
-        self.read_register(0x09, 5, "Display Status >> Display On")
-            .await;
-
-        self.read_register(0x0a, 2, "Display Power Mode").await;
-        self.read_register(0x0b, 2, "MADCTL").await;
-        self.read_register(0x0c, 2, "Pixel Data Format").await;
-        self.read_register(0x0b, 2, "Disgnostic Result").await;
+        self.read_register(0x09, 5, "Status -> Init").await;
+        self.clear(10, 10, 20, 50, Rgb565::GREEN).await?;
 
         Ok(())
     }
@@ -217,16 +268,7 @@ impl<'a> AsyncIli9341<'a> {
         Ok(())
     }
 
-    async fn command(&mut self, command: u8, data: &[u8]) -> Result<(), Error> {
-        self.dc.set_low();
-        self.cs.set_low();
-        self.spi.write(&[command]).await?;
-        self.dc.set_high();
-        self.spi.write(data).await?;
-        self.cs.set_high();
-        Ok(())
-    }
-
+    /*
     async fn _read_data(&mut self, command: u8, read: &mut [u8]) -> Result<(), Error> {
         self.dc.set_low();
         self.cs.set_low();
@@ -236,11 +278,13 @@ impl<'a> AsyncIli9341<'a> {
         self.cs.set_high();
         Ok(())
     }
+    */
 
     async fn write_data(&mut self, data: &[u8]) -> Result<(), Error> {
         self.dc.set_high();
         self.cs.set_low();
-        self.spi.write(data).await?;
+        // self.spi.write(data).await?;
+        self.spi.blocking_write(data)?;
         self.cs.set_high();
         Ok(())
     }
